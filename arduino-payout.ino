@@ -73,12 +73,25 @@ int serverPos = 0;    // variable to store the servo position
 //const int buttonPin = D0;
 //uint8_t buttonInterrupt;    // Variable integer to keep if we have Successful Read from Reader
 
+
+/***********************************************************************************************
+ **
+ ***********************************************************************************************/
+
+
 /***********************************************************************************************
  **
  ***********************************************************************************************/
 int payoutAmount;
 int payoutCounter = 0;
 
+
+struct WithdrawResponse
+{
+	int returnCode;
+	int amount;
+	String message;
+};
 
 /***********************************************************************************************
  **
@@ -369,9 +382,9 @@ void setup() {
 	//pinMode(buttonPin, INPUT_PULLUP);
 	//Serial.println("  OK");
 
-//	Serial.println("Starting WIFI:");
-//	startWifi();
-//	Serial.println("  OK");
+	Serial.println("Starting WIFI:");
+	startWifi();
+	Serial.println("  OK");
 
 	Serial.println("##########################");
 }
@@ -405,44 +418,48 @@ uint8_t getID() {
 /***********************************************************************************************
  **
  ***********************************************************************************************/
-bool sendWithdrawRequest(String cardIdentifyer) {
-//	DynamicJsonBuffer jsonBuffer;
-//
-//	JsonObject& root = jsonBuffer.createObject();
-//	root["card"] = cardIdentifyer;
-//
-//	String payload;        
-//	root.printTo(payload);
-//
-//	Serial.println("[sendWithdrawRequest] payload " + payload);
-//
-//	http->begin(config_data_server + config_data_endpoint);
-//	http->addHeader("Content-Type","application/json");
-//
-//	int httpCode = http->sendRequest("POST", payload);
-//
-//
-//	if(httpCode == HTTP_CODE_OK) {
-//		String responsePayload = http.getString();
-//		Serial.println("[sendWithdrawRequest] responsePayload " + responsePayload);
-//
-//		StaticJsonBuffer<200> jsonBuffer;
-//    	JsonObject& result = jsonBuffer.parseObject(line);
-//
-//    	if (!result.success()) {
-//			Serial.println("[sendWithdrawRequest] parseObject() failed");
-//      		return false;
-//    	}
-//
-//
-//    } else {
-//    	Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
-//    	return false;
-//  	}
-//
-//
-//	http->end();
-	return true;
+WithdrawResponse sendWithdrawRequest(String cardIdentifyer) {
+	WithdrawResponse withdrawResponse {0, 0, "n/a"};
+
+	DynamicJsonBuffer jsonBuffer;
+
+	JsonObject& root = jsonBuffer.createObject();
+	root["card"] = cardIdentifyer;
+
+	String payload;        
+	root.printTo(payload);
+
+	Serial.println("[sendWithdrawRequest] payload: " + payload);
+
+
+	HTTPClient http;
+	http.begin(String(config_data_server) + String(config_data_endpoint));
+	http.addHeader("Content-Type", "application/json");
+
+	int responseCode = http.sendRequest("POST", payload);
+	withdrawResponse.returnCode = responseCode;
+
+	if(responseCode == HTTP_CODE_OK) {
+		String responsePayload = http.getString();
+		Serial.println("[sendWithdrawRequest] responsePayload: " + responsePayload);
+
+		StaticJsonBuffer<200> jsonBuffer;
+    	JsonObject& result = jsonBuffer.parseObject(responsePayload);
+
+    	if (result.success()){
+    		withdrawResponse.message = result["message"].asString();
+    		withdrawResponse.amount = result["amount"];
+
+    	} else {
+			Serial.println("[sendWithdrawRequest] parseObject() failed");
+			withdrawResponse.message = "[sendWithdrawRequest] parseObject() failed";
+    	}
+    } else {
+    	Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(responseCode).c_str());
+  	}
+
+	http.end();
+	return withdrawResponse;
 }
 
 /***********************************************************************************************
@@ -501,23 +518,28 @@ void loop() {
 	display.setTextColor(WHITE);
 	display.setCursor(0,0);
 	display.println("Card read");
-
-	display.setCursor(0,15);
-	display.println("Card ID:");
+	display.print("Card ID: ");
 	display.println(cardIdentifier);
 
 	display.display();
 
+	WithdrawResponse withdrawResponse = sendWithdrawRequest(cardIdentifier);
 
-	if (sendWithdrawRequest(cardIdentifier)) {
-		display.setCursor(0,45);
-		display.println("WS OK");
+	if (withdrawResponse.returnCode == 200) {
+		//display.setCursor(0,45);
+		display.print("WS OK: ");
+		display.println(withdrawResponse.returnCode);
+		display.println(withdrawResponse.message);
+		display.print("Amount: ");
+		display.println(withdrawResponse.amount);
 		display.display();
-		payout(1);
+		payout(withdrawResponse.amount);
 
 	} else {
-		display.setCursor(0,45);
-		display.println("WS Error");
+		//display.setCursor(0,45);
+		display.print("WS Error: ");
+		display.println(withdrawResponse.returnCode);
+		display.println(withdrawResponse.message);
 		display.display();
 	}
 
